@@ -1,0 +1,880 @@
+# Analysis of Contributions towards Presidential Campaign in 2016 in California
+ by Rajat Gupta
+========================================================
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+
+library(ggplot2)
+library(ggmap)
+library(mapproj)
+library(plyr)
+```
+
+```{r echo=FALSE, Load_the_Data}
+# Load the Data
+Data <- read.csv('P00000001-CA.csv', header = TRUE, sep = ",", 
+                 row.names = NULL)
+
+#As all the columns are shifted by one due to the appearance of 'row.names' 
+#because of the way the data has been imported, and the last coulumn is empty, 
+#the data will be shifted to the right and then, this extra column will 
+#be deleted. 
+Data[2:19]<-Data[1:18]
+Data <- subset(Data, select = -c(row.names))
+
+clean <- function(original, vals_to_change, final_val){
+  final <- ifelse(original %in% vals_to_change,
+                  final_val, as.character(original))
+  return (factor(final))
+}
+
+dem <- c("Clinton, Hillary Rodham",
+         "Sanders, Bernard",
+         "O'Malley, Martin Joseph",
+         "Webb, James Henry Jr.",
+         "Lessig, Lawrence")
+
+oth <- c("Johnson, Gary",
+         "McMullin, Evan",
+         "Stein, Jill")
+
+fem <- c("Clinton, Hillary Rodham",
+         "Stein, Jill",
+         "Fiorina, Carly")
+
+self <- c("SELF-EMPLOYED","SELF", "SELF EMPLOYED-EMPLOYED")
+
+Data$pol_party <- ifelse(Data$cand_nm %in% dem, 'Democratic Party', 
+                         ifelse((Data$cand_nm %in% oth),
+                                'Other', 'Republican Party'))
+Data$pol_party <- factor(Data$pol_party)
+
+Data$gender <- ifelse(Data$cand_nm %in% fem, 'Female', 'Male')
+Data$gender <- factor(Data$gender)
+
+
+#Data in the column contbr_employer contains mainy abreviations and duplicates,
+#thus it needs to be cleaned which is being done here. Due to the volume of 
+#entries, changes are made for values having large entries only.
+Data$contbr_employer <- clean(Data$contbr_employer, self, "SELF EMPLOYED")
+Data$contbr_employer <- clean(Data$contbr_employer, c("APPLE INC."), "APPLE")
+Data$contbr_employer <- clean(Data$contbr_employer, c("ORACLE CORP."), 
+                              "ORACLE")
+Data$contbr_employer <- clean(Data$contbr_employer, c("UNEMPLOYED"), 
+                              "NOT EMPLOYED")
+Data$contbr_employer <- clean(Data$contbr_employer, c("UCSD"), 
+                              "UNIVERSITY OF CALIFORNIA SAN DIEGO")
+Data$contbr_employer <- clean(Data$contbr_employer, c("USC"), 
+                              "UNIVERSITY OF SOUTHERN CALIFORNIA")
+Data$contbr_employer <- clean(Data$contbr_employer, c("SFUSD"), 
+                              "SAN FRANCISCO UNIFIED SCHOOL DISTRICT")
+Data$contbr_employer <- clean(Data$contbr_employer, c("UC BERKELEY"), 
+                              "UNIVERSITY OF CALIFORNIA, BERKELEY")
+Data$contbr_employer <- clean(Data$contbr_employer, c("KAISER"), 
+                              "KAISER PERMANENTE")
+Data$contbr_employer <- clean(Data$contbr_employer, c("STATE OF CA"), 
+                              "STATE OF CALIFORNIA")
+Data$contbr_employer <- clean(Data$contbr_employer, c("UCSF"), 
+                              "UNIVERSITY OF CALIFORNIA SAN FRANCISCO")
+Data$contbr_employer <- clean(Data$contbr_employer, 
+                              c("INFORMATION REQUESTED PER BEST EFFORTS"), 
+                              "INFORMATION REQUESTED")
+#making the empty values to be N/A
+Data$contbr_employer <- clean(Data$contbr_employer, c(""), "N/A")
+
+```
+
+This dataset looks at the Financial Contributions made to the presidential 
+campaign for the U.S. presidential election in 2016 in the State of California.
+The data is provided by the Federal Election Commission and includes 
+information about the donor, the amount contributed and the receiving 
+candidate. Extra information about the individual's party affiliation and 
+gender have also been added.
+
+# Univariate Plots Section
+
+Looking at the Data, the variables within it,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+dim(Data)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+str(Data)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary(Data)
+```
+
+We see that most of the data contains ordered factors, with one continuos 
+variable which will be studied extensively ('contb_receipt_amt').
+
+Now, looking at variation in different variables,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(contb_receipt_amt), data= Data)+
+  geom_histogram(binwidth = 10)+
+  scale_x_continuous(breaks = seq(0,1000,50), limits = c(0,1000) )+
+  ylim(0, 300000)+
+  xlab('Contribution Amount')
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary(subset(Data, contb_receipt_amt>0)$contb_receipt_amt)
+```
+
+We can clearly see that most of the donations made are small amounts, with very 
+few large donations.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+large_contrib_cities <- (summary(Data$contbr_city)>15000)
+large_contrib_cities <- names(large_contrib_cities[large_contrib_cities 
+                                                   == TRUE])
+ggplot(aes(contbr_city), 
+       data = subset(Data, contbr_city %in% large_contrib_cities))+
+  geom_bar()+xlab('City Name')+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+city_vals <- ddply(Data, .(contbr_city), "nrow")
+city_vals <- subset(city_vals, nrow>35000)
+city_vals <- droplevels(city_vals)
+
+xx=c("lon", "lat")
+city_vals[xx] <-geocode(as.character(city_vals$contbr_city))
+
+Cal <- subset(map_data("state"), region %in% c("california"))
+
+Cal_map <- ggplot(data=Cal)+
+  geom_polygon(aes(x=long,y=lat), color='black', fill='yellow')+
+  coord_fixed(1.3)
+
+Cal_map+
+  geom_point(aes(x=lon, y=lat, size = nrow), data=city_vals, alpha=0.2)+
+  scale_size_area(name="No. of Donations")+
+  geom_text(aes(x=lon, y=lat, label=contbr_city), hjust="inward", 
+            data=subset(city_vals, nrow>35000))
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+summary(Data$contbr_city)[summary(Data$contbr_city)>15000]
+large_contrib_cities <- names(summary(Data$contbr_city)
+                              [summary(Data$contbr_city)>15000])
+```
+
+We can see that the largest number of the contributions are coming from cities 
+located on the California coast (Los Angeles, San Francisco & San Diego).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+large_contrib_cand <- (summary(Data$cand_nm)>10000)
+large_contrib_cand <- names(large_contrib_cand[large_contrib_cand == TRUE])
+ggplot(aes(cand_nm), 
+       data = subset(Data, cand_nm %in% large_contrib_cand))+
+  geom_bar(width = 0.7)+
+  xlab('Candidate Name')+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot( aes(pol_party), data=Data)+
+  geom_bar(width = 0.5)+
+  ylab('Number of Contributions')+
+  xlab('Political Party')
+```
+
+As the candidates who got the most donations were affiliated with the 
+Democratic Party, it is no surprise that their party had the largest number of 
+contributions in the state of California.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(gender), data = Data)+
+  geom_bar(width = 0.5)
+```
+
+We can see that Female candidates received greater number of donations than 
+their male counterparts.
+
+Lets, look at the employers for the donating individuals.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print("Donor Occupation information")
+head(summary(Data$contbr_occupation))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+top_employers <- names(summary(Data$contbr_employer)
+                       [summary(Data$contbr_employer)>1500])
+ggplot(aes(contbr_employer), data=subset(Data, 
+                                         contbr_employer %in% top_employers))+
+  geom_bar()+
+  scale_y_log10()+
+  xlab('Employer Name')+
+  coord_flip()
+  
+```
+
+We can see that most of the individuals that contributed financially are either
+Self Employed, retired or the data is unavailable. The above graph has been 
+created after extensive data cleaning because of abbreviations and empty cell 
+values which have been renamed N/A due to lack of knowledge.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(election_tp), data = Data)+
+  geom_bar(width = 0.7) +
+  scale_y_log10()+
+  xlab('Election Stage')
+```
+
+While analysing, the stages at which the donations were made, we see that the 
+column "election_tp" has 1695 empty entries. There are also 10548 empty entries
+in the column, "contbr_employer".
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+top_dates <- (summary(Data$contb_receipt_dt)>9000)
+top_dates <- names(top_dates[top_dates == TRUE])
+ggplot(aes(contb_receipt_dt), 
+       data=subset(Data,contb_receipt_dt %in% top_dates))+
+  geom_bar()+
+  xlab("Top Donation Dates")+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+top_dates
+```
+
+We find that most of the donations were either made in the months of October 
+and Novemeber, close to the General Election in the country or during the 
+months of March and April, before the Primary Election in Califronia.
+
+# Univariate Analysis
+
+### What is the structure of your dataset?
+The data has been divided into various columns providing information about the 
+donor, the candidate to whom the donation has been made and when the donation
+was made. This information has been spread across 20 variables of which 17
+variables are ordered factors, only one is a continous variable 
+(contb_receipt_amt).
+
+### What is/are the main feature(s) of interest in your dataset?
+The main features of interest involve looking at the relation between the 
+amount donated, number of contibutions and the characterstics (occupation, 
+employer) of the donor. It will also be interesting looking at different 
+candidates and analysing the sources of their donations.
+
+### What other features in the dataset do you think will help support your \
+investigation into your feature(s) of interest?
+The information about party affiliation, candidate gender, contributed amount,
+time at which the contribution was made, all lend themselves to the analysis
+being performed and will help in determining if any correlation exists between
+different variables.
+
+### Did you create any new variables from existing variables in the dataset?
+Two new variables describing the party affiliation and the gender of the 
+candidate were added to help in analysing the data. Data for the creation of 
+both the variables was achieved through the Wikipedia page for each of the 
+candidates.
+
+This data is required to analyse the variation in donations made according to
+the party affiliation and candidate gender to determine possible donor 
+preferences.
+
+### Of the features you investigated, were there any unusual distributions? \
+Did you perform any operations on the data to tidy, adjust, or change the form \
+of the data? If so, why did you do this?
+
+The data has a lot of empty entries specially in the election_tp, 
+contbr_employer variables. 
+
+The variable, contbr_employer was cleaned to care of over abbreviated employer
+names and empty values. However, 'complete' cleaning was not possible due to 
+high number of records and presence of unique entries each following a 
+different standard.
+
+Also, while analysing the amount contributed, only values with positive 
+contb_receipt_amt were considered because a negative value represented a refund
+made back to the donor which doesn't reflect a donation.
+
+# Bivariate Plots Section
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(contb_receipt_amt), data = subset(Data, contb_receipt_amt>0))+
+  geom_histogram( binwidth = 10)+
+  scale_x_continuous(limits = c(0,1010), breaks =seq(0,1010,100) )+
+  facet_wrap(~gender) +
+  xlab("Donation Amount")
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+by(subset(Data,contb_receipt_amt>0)$contb_receipt_amt,
+   subset(Data,contb_receipt_amt>0)$gender, 
+   summary)
+```
+
+It is interesting to note that although, the maximum & median donation made to
+male candidates was greater than that for female candidates, the mean donation 
+made to the female candidates was higher, this could be due to a large number 
+of high donations made to female candidates compared to their male 
+counterparts. Let's verify this by looking at donations greater that $1000.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(contb_receipt_amt), data = subset(Data, contb_receipt_amt>1010))+
+  geom_histogram( binwidth = 50)+
+  facet_wrap(~gender) +
+  xlim(1010,3000)+
+  xlab("Donation Amount")
+```
+
+It was interesting to note that there appeared to be a spike in donations made 
+near $3000 for both male and female candidates, but this spike is greater for 
+female candidates than for male candidates, which would explain the higher mean
+value for female candidates.
+
+Let's look at which Female candidates is receiving these donations,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(contb_receipt_amt), data = subset(Data, (contb_receipt_amt>1010)&
+                                               (gender == 'Female')))+
+  geom_histogram( binwidth = 50)+
+  facet_wrap(~cand_nm) +
+  xlim(1010,3000)+
+  xlab("Donation Amount")
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(contb_receipt_amt), data = subset(Data, (contb_receipt_amt>1010)&
+                                               (gender == 'Female')))+
+  geom_histogram( binwidth = 50)+
+  facet_wrap(~cand_nm) +
+  xlim(3000,6000)+
+  xlab("Donation Amount")
+```
+
+It is interesting to see from these graphs that "Clinton, Hillary Rodham" 
+recieved much greater donations between 2500 and 3000 than rest of the female 
+candidates. But, "Fiorina, Carly" received greater number of donations ranging 
+from 5000-6000$. As we see that the number of donations received by "Clinton, 
+Hillary Rodham" were much greater than others, she received the most donations 
+among female candidates.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(x=pol_party, y=contb_receipt_amt), 
+       data = subset(Data, contb_receipt_amt>0))+
+  geom_boxplot()+ 
+  coord_cartesian(ylim=c(0,1000))+
+  xlab("Political Party")+
+  ylab("Amount Contributed")
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+by(subset(Data,contb_receipt_amt>0)$contb_receipt_amt, 
+   subset(Data,contb_receipt_amt>0)$pol_party, 
+   summary)
+```
+
+This verifies the boxplots achieved, telling us that although the Democratic 
+Party received greater number of donations (from Univariate Analaysis), the 
+Republican and the other parties received a higher mean and median contribution
+amount per donor.
+
+Lets look at the Individuals who have made the highest single contributions to
+the campaigns,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+high_payers <- (subset(Data,contb_receipt_amt>=5500))
+print("Occupation of Top Paying Individuals:")
+summary(high_payers$contbr_occupation)[summary
+                                       (high_payers$contbr_occupation)>0]
+```
+
+Looking at individuals that have contributed the most amounts to the 
+Presidential Campaigns we see that most of them have top-level positions i.e. 
+CEO, President, Founder, Chairman, Owner, etc. Let's also look at the 
+organizations they work for.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+print("Organizations Top Paying Individuals work for:")
+summary(high_payers$contbr_employer)[summary(high_payers$contbr_employer)>0]
+```
+
+Here, we see that most of these individuals are either self employed, retired
+or have chosen not to reveal their organization (thus, in the category 
+"INFORMATION REQUESTED").
+
+Now, lets look at the financial contributions made to candidates of the 
+Democratic Party,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(y=contb_receipt_amt, x=cand_nm), 
+       data = subset(Data, 
+                     (pol_party=='Democratic Party')&(contb_receipt_amt>0)))+
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0,1000))+
+  xlab('Candidate Name')+
+  ylab('Amount')
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+Democratic_Party <- (subset(Data, 
+               (pol_party=='Democratic Party')&(contb_receipt_amt>0)))
+Democratic_Party$cand_nm <- droplevels(Democratic_Party$cand_nm)
+
+by(Democratic_Party$contb_receipt_amt, Democratic_Party$cand_nm, summary)
+```
+
+It is interesting to note that the candidates  who got the most number of 
+donations (from univariate analysis) have the lowest median and mean among
+all the Democratic Party Candidates. Let's see if this trend persists for
+the Republican Party also.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+Republican_Party <- (subset(Data, 
+               (pol_party=='Republican Party')&(contb_receipt_amt>0)))
+
+#As there are a lot of republican candidates, we will be only plotting those
+#with number of donations greater than 3000
+top_republicans <- names(summary(Republican_Party$cand_nm)
+                         [(summary(Republican_Party$cand_nm)>3000)])
+
+Republican_Party <- subset(Republican_Party,cand_nm %in% top_republicans)
+Republican_Party$cand_nm <- droplevels(Republican_Party$cand_nm)
+
+ggplot(aes(y=contb_receipt_amt, x=cand_nm), data = Republican_Party)+
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0,1000))+
+  xlab('Candidate Name')+
+  ylab('Amount')+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+by(Republican_Party$contb_receipt_amt, Republican_Party$cand_nm, summary)
+```
+
+We can again see that for candidates who received large number of donations,
+the median and mean for the amount received is lower compared to the other
+candidates.However, the values for the mean and the median were higher for top
+Republican candidates than for top Democratic Candidates which may be because 
+the number of overall contributions was lower for the Republican party.
+
+Now, that we have looked at each donation, we will look at the total amount
+collected by each candidate through these contributions.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+dotchart(by(Data$contb_receipt_amt,Data$cand_nm,sum),
+         xlab = 'Total Amount ($)',
+         main= 'Total Amount Received by Each Candidate',
+         lcolor = 'Blue',
+         color = 'Black')
+```
+
+Here, we can see that the two candidates who received the maximum number of 
+donations also, received the highest amounts. However, the total recieved was 
+much greater for one of those candidates than the other.
+
+Thus, lets look at the correlation between the number of donations made and 
+the total amount generated for each candidate.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+cor.test(by(Data$contb_receipt_amt,Data$cand_nm,sum), table(Data$cand_nm))
+```
+
+There appears to be a very high correlation between the total amount generated
+and the number of donations as shown by the correlation coefficient.
+
+Let's now look at the amount received by candidates on the dates when maximum
+donations were made (already calculated in Univariate Section)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+top_date_values <- subset(Data, contb_receipt_dt %in% top_dates)
+top_date_values$contb_receipt_dt <- 
+  droplevels(top_date_values$contb_receipt_dt)
+
+ggplot(aes(x=contb_receipt_dt, y=contb_receipt_amt), 
+       data = subset(top_date_values, contb_receipt_amt>0))+
+  geom_bar(stat='identity')+
+  xlab('Dates')+
+  ylab('Amount Contributed ($)')+
+  scale_y_continuous(labels = scales::unit_format("Million",1e-6))+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+by(top_date_values$contb_receipt_amt, top_date_values$contb_receipt_dt, sum)
+```
+
+From the graph and the values above we find that the largest amount was donated
+on 26th September 2016, around one month before the General Election.
+
+Lets also look at the correlation between the number of donations made each day
+and the total amount donated that day.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+cor.test(by(Data$contb_receipt_amt,
+            Data$contb_receipt_dt,sum),
+         table(Data$contb_receipt_dt))
+```
+
+We can see that the correlation is quite strong as shown by the Pearson's 
+Correlation coefficient.
+
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. How did the feature(s) of interest vary with other features in \
+the dataset
+
+Multiple analysis were performed which included studying the relation between 
+gender and amount donated, identifying occupations and employers who have 
+contributed the largest single amounts to the campaigns, the variation in 
+amounts donated depending on the Candidate among each major political party and
+looking at different correlations between various variables.
+
+It was interesting to see that female candidates, had a higher number of 
+'large' donations compared to their male counter parts. This was mainly due to
+contributions made toward one candidate ("Clinton, Hillary Rodham"). It was 
+also seen to no surprise that the large contributions came from indivduals who 
+had "high ranking" occupations such as CEO, founder, president, etc. An 
+analysis of the relation between total contributions made and the total amount 
+donated to a particular candidate showed a very strong correlation exhibited 
+by the Pearson Correlation Coefficient.
+
+### Did you observe any interesting relationships between the other features \
+(not the main feature(s) of interest)?
+As the main variable being analysed is "contb_receipt_amt" i.e. the amount 
+contributed for each entry, all relations are generated with respect to this 
+variable. 
+
+We saw that females generated more money than their male counterparts and
+having higher contributions would increase your chances of generating greater 
+money. Also, Pearson's Correlation coefficient suggested that greater the 
+number of donations made in a day, greater is the amount generated.
+
+### What was the strongest relationship you found?
+The strongest relation established was the one between the total number of 
+donations made to a candidate and the total amount generated by that candidate.
+
+# Multivariate Plots Section
+
+Let's first look at the candidate who received the most donation amount and
+analyze which city contributed the most to this candidate.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots}
+hillary_clinton <- subset(Data, cand_nm == 'Clinton, Hillary Rodham')
+hillary_clinton <- subset(hillary_clinton, contb_receipt_amt>0)
+
+hc_city_sums <- aggregate(hillary_clinton$contb_receipt_amt,
+                          by=list(hillary_clinton$contbr_city), FUN=sum)
+
+hc_city_sums <- subset(hc_city_sums, x>750000)
+hc_city_sums[xx] <- geocode(as.character(hc_city_sums$Group.1))
+hc_city_sums <- droplevels(hc_city_sums)
+
+Cal_map+
+  geom_point(aes(x=lon, y=lat, size = x/(1e6)), 
+             data=subset(hc_city_sums, x>2400000), alpha=0.2)+
+  scale_size_area(name="Donation in million $")+
+  geom_text(aes(x=lon, y=lat, label=Group.1), hjust="inward", 
+            data=subset(hc_city_sums, x>2400000))+
+  ggtitle("Cities with most contributions for the Top Receiving Candidate")
+
+```
+
+This is very similar to the plot we got in the univariate section when we 
+examined the total contributions made by each city but here, 'Palo Alto' 
+replaces 'San Diego' as people living here donated more to the top candidate. 
+Let's also look at the individual amounts that were donated to the top receiving
+candidate in the top donating cities.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(aes(x=contbr_city, y=contb_receipt_amt), 
+       data=subset(hillary_clinton, contbr_city %in%large_contrib_cities))+
+  geom_point(alpha =0.05, position=position_jitter())+
+  scale_y_continuous(breaks=seq(0,6500,1000))+
+  xlab('City Name')+
+  ylab('Amount ($)')+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+We can see that most of the donations made were $1000 or less, but for the 
+cities of San Francisco and Los Angeles, the amounts donated greater than $1000
+were higher compared to the other cities, this contibuted to them donating the 
+most money.
+
+Lets look at the variation in the amount donated per person depending on the 
+employer for the top 5 candidates.
+
+```{r message=FALSE, warning=FALSE}
+#We will be making two plots, which will make data visualization easier.
+
+#Employers listed on first graph
+gp_one <- c("NONE", "HOMEMAKER", "NOT EMPLOYED", "SELF EMPLOYED", "RETIRED")
+
+#Employers listed on second graph
+gp_two <- c("APPLE", "GOOGLE", "UCLA", "STATE OF CALIFORNIA", 
+            "STANFORD UNIVERSITY")
+
+#Candidates receiving most donations, as seen earlier
+cand_name_emp <- c("Clinton, Hillary Rodham", "Sanders, Bernard", 
+                   "Trump, Donald J.","Cruz, Rafael Edward 'Ted'", 
+                   "Rubio, Marco")
+
+#Function to get the total number of donations per candidate and amount given 
+#per donation for each employer
+
+get_data <- function(employers, candidates, dataframe){
+  cand_employer_data <- ddply(dataframe, c("contbr_employer","cand_nm"),
+                              c("nrow"))
+  
+  gp_data <- subset(cand_employer_data, contbr_employer %in% employers)
+  gp_data <- subset(gp_data, cand_nm %in% candidates)
+  
+  sums <- aggregate(Data$contb_receipt_amt,by=list(Data$cand_nm,
+                                                 Data$contbr_employer),FUN=sum)
+  sums <- subset(sums, (Group.1 %in% candidates)&(Group.2 %in% employers))
+  
+  gp_data$per_person <- sums$x/gp_data$nrow
+  return (gp_data)
+}
+
+gp_one_data <- get_data(gp_one,cand_name_emp, Data)
+gp_two_data <- get_data(gp_two,cand_name_emp, Data)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(y=per_person, x=contbr_employer, fill = cand_nm),
+       data=gp_one_data)+
+  geom_col(position="dodge")+
+  scale_color_brewer(palette = "Dark2")+
+  labs(fill="Candidate Name")+
+  ylab("Contribution per person")+
+  xlab("Employer Name")+
+  ggtitle("Variation in Amount contributed per person depending on Employer")
+  
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(aes(y=per_person, x=contbr_employer, fill = cand_nm),
+       data=gp_two_data)+
+  geom_col(position="dodge")+
+  scale_color_brewer(palette = "Dark2")+
+  ylab("Contribution per person")+
+  xlab("Employer Name")+
+  labs(fill="Candidate Name")+
+  ggtitle("Variation in Amount contributed per person depending on Employer")+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+
+```
+
+We can see from the analysis, that "Rubio, Marco" received the greatest 
+Contribution per person for most of the cases. In a lot of the cases minimum 
+contribution per person was received by "Clinton, Hillary Rodham" who we have 
+seen received the most donations and the greatest amount in previous analysis. 
+Thus, this greater contribution per person can be because of lesser number of
+contributions made to "Rubio, Marco". Thus, we look at total contributions made
+by individuals working for each of these employers to the candidates. To plot
+these values we use a log scale on the y axis,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(aes(y=per_person*nrow, x=contbr_employer, fill = cand_nm),
+       data=gp_one_data)+
+  geom_col(position="dodge")+
+  scale_y_log10()+
+  scale_color_brewer(palette = "Dark2")+
+  ylab("Total Contribution ($)")+
+  xlab("Employer Name")+
+  labs(fill="Candidate Name")+
+  ggtitle("Variation in Total Amount contributed by individuls working 
+                                for an Employer")
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(aes(y=per_person*nrow, x=contbr_employer, fill = cand_nm),
+       data=gp_two_data)+
+  geom_col(position="dodge")+
+  scale_y_log10()+
+  scale_color_brewer(palette = "Dark2")+
+  ylab("Total Contribution ($)")+
+  xlab("Employer Name")+
+  labs(fill="Candidate Name")+
+  ggtitle("Variation in Total Amount contributed by individuls working 
+                                for an Employer")+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+The two graphs give very different results. The second one confirms the 
+hypothesis stated that "Clinton, Hillary Rodham" got the most amount of 
+donations because of her larger number of donations, but in the first plot
+we see that "Sanders, Bernard", "Rubio, Marco" and "Trump, Donald J." 
+received a total greater contribution than "Clinton, Hillary Rodham" for some 
+values.
+
+For these values, lets look at the total contributions made and the average
+contribution per person,
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+vals_interest <- subset(gp_one_data,contbr_employer %in% 
+                          c("HOMEMAKER", "NOT EMPLOYED",
+                                          "NONE", "RETIRED"))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+subset(vals_interest,contbr_employer %in% "NOT EMPLOYED")
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+subset(vals_interest,contbr_employer %in% "HOMEMAKER")
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+subset(vals_interest,contbr_employer %in% "NONE")
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+subset(vals_interest,contbr_employer %in% "RETIRED")
+```
+
+We see that, "Sanders, Bernard" received much greater contributions than anyone
+else in the categories with employer names, "None" & "Not Employed" which 
+combined with a good contribution per person lead to him having the most total
+donations there. 
+
+Within the employee category, "Homemaker", "Trump, Donald J." 
+& "Cruz, Rafael Edward 'Ted'" received almost the same total amount of 
+contributions despite the fact that "Cruz, Rafael Edward 'Ted'" received almost
+200 more donations.
+
+For the employee category, "Retired", we find that although "Clinton, Hillary 
+Rodham" received more number of donations but, "Trump, Donald J." received the
+greater total amount because of greater amount donated per person.
+
+# Multivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the \
+investigation. Were there features that strengthened each other in terms of \
+looking at your feature(s) of interest?
+Two different analysis were performed here, first we looked at the sources of
+donations for the top receiving candidate and found that two cities are major
+contributors to this amount.
+
+The other analysis examined the possiblity of a relation between employers
+of the donor and the candidate receiving the donation. 
+
+### Were there any interesting or surprising interactions between features?
+It was interesting to see that donors who work for certain employers deviated 
+from the consensus top receiving candidate and having greatest number of 
+contributions from a particular group is not a guarantee that the total 
+contribution received from that group will be the greatest. Also, if popularity
+is measured by the number of donations received, we have identified certain 
+groups (Employers under the categories, "Not Employed", "None", "Homemaker" & 
+"Retired") which have different preferences from the overall consensus.
+
+------
+
+# Final Plots and Summary
+
+### Plot One
+```{r echo=FALSE, Plot_One}
+Cal_map+
+  geom_point(aes(x=lon, y=lat, size = nrow), data=city_vals, alpha=0.25)+
+  scale_size_area(name="No. of Donations")+
+  geom_text(aes(x=lon, y=lat, label=contbr_city), hjust="inward", 
+            data=subset(city_vals, nrow>35000))+
+  ggtitle('Cities with Highest Contributions')+
+  xlab('Longitude')+
+  ylab('Latitude')
+```
+
+### Description One
+This plot looks at the cities from where the maximum donations were received,
+it can be seen clearly that most of these cities are located along the edges/
+coast of the region. This implies that these locations might be densely 
+populated and it makes sense to spend more time and resources campaigning in 
+these cities in the future.
+
+### Plot Two
+```{r echo=FALSE, Plot_Two}
+ggplot(aes(y=contb_receipt_amt, x=cand_nm), 
+       data = subset(Data, 
+                     (pol_party=='Democratic Party')&(contb_receipt_amt>0)))+
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0,1000))+
+  xlab('Candidate Name')+
+  ylab('Amount ($)')+
+  ggtitle('Variations in amount received by each candidate')
+```
+
+### Description Two
+From the above plot, it can be seen that the candidates who received the most
+number (and amount) of donations have a lower median and quartile values, with 
+a lot of outliers as most of these donations are smaller amounts which drives 
+the median and quartile values low. This trend is consistent for candidates of 
+both the major political parties.
+
+### Plot Three
+```{r echo=FALSE, Plot_Three}
+ggplot(aes(y=per_person*nrow, x=contbr_employer, fill = cand_nm),
+       data=gp_one_data)+
+  geom_col(position="dodge")+
+  scale_y_log10()+
+  scale_color_brewer(palette = "Dark2")+
+  ylab("Total Contribution ($)")+
+  xlab("Employer Name")+
+  labs(fill="Candidate Name")+
+  ggtitle("Variation in Total Amount contributed by individuls working 
+                                for an Employer")+
+  theme(axis.text.x = element_text(angle=90, hjust=1)) 
+```
+
+### Description Three
+From the above graph we see that individuals working for certain employers have
+preferences different from the state consensus (if popularity is taken as the 
+number of donations received by a candidate). We see that individuals working 
+for 'None', 'Retired', 'Not Employed' and 'Homemaker' prefer different 
+candidates to the one most popular in the state ('Clinton, Hillary Rodham'). 
+This can serve as an important factor in formulating proposed policies and 
+targetting new donors which all contribute to being successful in an election.
+
+------
+
+# Reflection
+
+This dataset contained information about the donations received by candidates
+for the 2016 U.S. Presidential Election from the state of California. 
+
+As, there was really only one continous variable in amount donated, analysis 
+revolved around its variation with different groups like political party, 
+candidate name, city of the donor , employer information & occupation of the 
+donor. It was interesting to note that the analysis kept pointing towards a 
+single main leader within the candidates (Clinton, Hillary Rodham) which 
+received the most number and the highest amount of donations.
+
+Variations in the amount donated to candidates revealed that more the number of
+donations, there is a greater likelihood that the median donation received is
+lesser. We were also able to identify certain groups that have preferences 
+which are different from the overall trend. This is important for targetting 
+new 'vote banks' and generating more funds for the campaign.
+
+This analysis could have been more detailed if, some extra information like 
+age of donors & donor genders was available as candidate preferences vary a lot
+with age and donor gender might have a bearing on the candidate of choice.
+The conclusions discussed in the analysis are based on certain assumptions like
+popularity is a measured by number of donations received by a candidate. Thus,
+care should be taken while drawing conclusions.
+
+This data could be analysed against the data for the Presidential Election held
+in 2012 to look at variations in contributions by cities, the differences in 
+dates when these contributions were made and looking at the variation in funds
+generated between the two major political parties.
